@@ -18,7 +18,7 @@ extern int g_devicesCreated;
 extern int g_devicesAlive;
 extern int g_resets;
 extern int g_presentCalls;
-extern UINT g_maxPrim;
+extern UINT g_maxPrim;           // ✅ unsigned int
 
 extern int g_DIP;
 extern int g_DP;
