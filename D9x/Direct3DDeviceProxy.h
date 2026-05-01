@@ -32,12 +32,6 @@ struct DetectedGlyph {
     float x, y;
 };
 
-// ================= GLYPH ENTRY (مع stability) =================
-struct GlyphEntry {
-    wchar_t character = 0;
-    int count = 0;
-};
-
 class HookedIDirect3DDevice9 : public IDirect3DDevice9
 {
 private:
