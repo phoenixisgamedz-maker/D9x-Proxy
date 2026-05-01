@@ -1,10 +1,12 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include "Direct3DDeviceProxy.h"
 #include "Shared.h"
+#include "TextLearning.h"
 #include <algorithm>
 #include <unordered_map>
 #include <vector>
 #include <string>
+#include <cwctype>
 
 // ================= DIAGNOSTIC =================
 static int g_diag_DIP = 0, g_diag_DP = 0, g_diag_DPUP = 0;
@@ -12,9 +14,10 @@ static int g_diag_text_DIP = 0, g_diag_text_DP = 0, g_diag_text_DPUP = 0;
 static int g_candidateHits = 0;
 
 // ================= GLOBAL =================
-static std::unordered_map<uint32_t, GlyphEntry> g_FontMap;
-static std::unordered_map<uint32_t, int> g_UnknownGlyphCount;
+static TextLearning g_TextLearning;
 static std::vector<GlyphInstance> g_TextBuffer;
+
+// قائمة العبارات المعروفة (للمقارنة فقط، وليس للتعلم الإجباري)
 static std::vector<std::wstring> g_KnownPhrases = {
     L"PRESS START BUTTON",
     L"HD COMPATIBLE FOR OPTIMAL GAMING",
@@ -211,14 +214,7 @@ GlyphUV HookedIDirect3DDevice9::ProcessGlyph(IDirect3DTexture9* tex9, VertexUV* 
 // ================= TEXT =================
 wchar_t HookedIDirect3DDevice9::GetCharFromHash(uint32_t hash)
 {
-    auto it = g_FontMap.find(hash);
-    if (it != g_FontMap.end() && it->second.count > 0)
-        return it->second.character;
-
-    if (g_UnknownGlyphCount[hash]++ < 5)
-        LogF("❓ UNKNOWN GLYPH: 0x%08X", hash);
-
-    return L'?';
+    return g_TextLearning.GetChar(hash);
 }
 
 void HookedIDirect3DDevice9::AddGlyph(uint32_t hash, float x, float y, int h)
@@ -269,88 +265,26 @@ float HookedIDirect3DDevice9::CompareStrings(const std::wstring& a, const std::w
     return (total == 0) ? 0.0f : (float)match / (float)total;
 }
 
-// ================= ATTEMPT LEARNING =================
+// ================= ATTEMPT LEARNING (استخدام TextLearning الجديد) =================
 void HookedIDirect3DDevice9::AttemptLearning(const std::vector<DetectedGlyph>& glyphs, const std::wstring& text)
 {
     if (glyphs.empty() || text.empty()) return;
 
-    float bestScore = 0.0f;
-    std::wstring bestMatch;
+    // استخراج الـ hashes فقط
+    std::vector<uint32_t> hashes;
+    hashes.reserve(glyphs.size());
+    for (const auto& g : glyphs)
+        hashes.push_back(g.hash);
 
-    for (const auto& phrase : g_KnownPhrases)
-    {
-        float score = CompareStrings(text, phrase);
-        if (score > bestScore)
-        {
-            bestScore = score;
-            bestMatch = phrase;
-        }
-    }
-
-    if (bestScore > 0.6f)
-    {
-        LogF("🔥 LEARN: '%S' -> '%S' (score=%.2f)", text.c_str(), bestMatch.c_str(), bestScore);
-
-        for (size_t i = 0; i < glyphs.size(); i++)
-        {
-            if (glyphs[i].hash == 0) continue;
-
-            bool foundMatch = false;
-
-            for (int shift = -2; shift <= 2; shift++)
-            {
-                int j = (int)i + shift;
-                if (j < 0 || j >= (int)bestMatch.size()) continue;
-
-                wchar_t expected = bestMatch[j];
-
-                auto& entry = g_FontMap[glyphs[i].hash];
-
-                if (entry.count == 0)
-                {
-                    entry.character = expected;
-                    entry.count = 1;
-                    foundMatch = true;
-                    LogF("   MAPPING: 0x%08X -> '%lc' (new)", glyphs[i].hash, expected);
-                    break;
-                }
-                else if (entry.character == expected)
-                {
-                    entry.count++;
-                    foundMatch = true;
-                    break;
-                }
-                else if (entry.count < 3)
-                {
-                    entry.character = expected;
-                    entry.count = 1;
-                    foundMatch = true;
-                    LogF("   MAPPING: 0x%08X -> '%lc' (conflict)", glyphs[i].hash, expected);
-                    break;
-                }
-            }
-        }
-    }
-    else if (bestScore > 0.3f)
-    {
-        LogF("⚠️ LOW SCORE: '%S' vs '%S' (%.2f)", text.c_str(), bestMatch.c_str(), bestScore);
-    }
+    // تمرير النص المكتشف إلى TextLearning (النظام الجديد سيتعلم تلقائياً)
+    g_TextLearning.Process(hashes, text);
 }
 
 // ================= SAVE FONT MAP =================
 void HookedIDirect3DDevice9::SaveFontMap()
 {
-    FILE* f = nullptr;
-    fopen_s(&f, "fontmap.txt", "w");
-    if (f)
-    {
-        for (auto& pair : g_FontMap)
-        {
-            fprintf(f, "%08X %lc %d\n", pair.first, pair.second.character, pair.second.count);
-        }
-        fclose(f);
-        LogF("💾 Saved %zu glyph mappings", g_FontMap.size());
-    }
+    // TextLearning لا يحتوي على Save مدمج حالياً، هذه دالة مستقبلية
+    LogF("💾 Font map size: %d mappings", g_TextLearning.GetMappingsCount());
 }
 
 // ================= LOAD FONT MAP =================
@@ -365,10 +299,10 @@ void HookedIDirect3DDevice9::LoadFontMap()
         int count;
         while (fscanf_s(f, "%08X %lc %d\n", &hash, &ch, 1, &count) == 3)
         {
-            g_FontMap[hash] = { ch, count };
+            g_TextLearning.AddMapping(hash, ch);
         }
         fclose(f);
-        LogF("📖 Loaded %zu glyph mappings", g_FontMap.size());
+        LogF("📖 Loaded %d glyph mappings", g_TextLearning.GetMappingsCount());
     }
 }
 
@@ -393,7 +327,7 @@ void HookedIDirect3DDevice9::FlushText()
     float lastX = g_TextBuffer[0].screenX;
     float threshold = g_TextBuffer[0].height * 0.5f;
 
-    for (size_t idx = 0; idx < g_TextBuffer.size(); idx++)
+    for (size_t idx = 0; idx < g_TextBuffer.size(); ++idx)
     {
         const GlyphInstance& g = g_TextBuffer[idx];
         float dy = (g.screenY > lastY) ? g.screenY - lastY : lastY - g.screenY;
