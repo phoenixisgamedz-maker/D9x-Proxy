@@ -142,7 +142,7 @@ BOOL WINAPI DllMain(HINSTANCE hInst, DWORD reason, LPVOID reserved)
         DisableThreadLibraryCalls(hInst);
         fopen_s(&g_log, "d3d9_proxy_log.txt", "w");
         Log("╔════════════════════════════════════════════════════════════╗");
-        Log("║     D3D9 PROXY DLL - Real Text Detection                   ║");
+        Log("║     D3D9 PROXY DLL - Diagnostic Mode                       ║");
         Log("╚════════════════════════════════════════════════════════════╝");
         LoadOriginal();
     }
