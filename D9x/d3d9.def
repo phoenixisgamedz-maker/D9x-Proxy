@@ -12,3 +12,5 @@ EXPORTS
     D3DPERF_GetStatus @10
     D3DPERF_SetOptionsEx @11
     Direct3D9EnableMaximizedWindowedModeShim @12
+    GetD3DDevice
+    GetFrame
